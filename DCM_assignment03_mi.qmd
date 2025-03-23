@@ -1,0 +1,420 @@
+---
+title: "DCM_assignment_03"
+author: "Mishu Dhar"
+format: pdf
+editor: visual
+---
+
+## 
+
+# Task 01: Importing data and Data Preparation
+
+Introduction. This data is about people's political affiliation considering other factors such as their education level, gender and their mindset towards immigrant. My assumption is people will higher education will have greater tie with liberal parties compared to less educated people. Additionally, I anticipate the attitudes towards immigrants will also have a significant impact on our analysis. Voters who think immigrants are making the United Kingdom a better place to live are inclined to turn towards liberal parties and the group who don't rate immigration as supportable issue will be are tend to vote for conservative parties more. Regarding gender, I expect it will not have a significant impact voting or political affiliation much.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# Importing libraries
+library(modelsummary)
+library(haven)
+library(tidyverse)
+library(dplyr)
+library(here)
+library(ggplot2)
+library(nnet)
+
+# importing dataset
+united_kingdom <- read_dta("/Users/mishudhar/Desktop/DSM labs/ESS10_gb.dta")
+head(united_kingdom, 5)
+```
+
+Selecting necessary variables
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+df_sorted <- united_kingdom %>%
+  select(prtvtdgb, gndr, agea, edulvlb, imwbcnt, vote)
+
+view(df_sorted)
+```
+
+Renaming variables and changing variables
+
+converting all sorts of missing values into NA
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+df_sorted <- df_sorted %>%
+  mutate(party = as_factor(zap_missing(prtvtdgb)),
+         gender = as_factor(zap_missing(gndr)),
+         education = as.integer(zap_missing(edulvlb)),
+         immigrants_better = as.integer(zap_missing(imwbcnt)),
+         age = as.integer(zap_missing(agea)),
+         voted = zap_missing(vote))
+
+# checking colnames
+colnames(df_sorted)
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+df_final <- df_sorted %>%
+  select(party, gender, education, immigrants_better,
+         age, voted)
+
+head(df_final)
+
+# checking for missing observations
+colSums(is.na(df_final))
+```
+
+Dropping all missing observations
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+df_final <- drop_na(df_final)
+
+# number of observations
+nrow(df_final)
+```
+
+# Task 02: Changing Party Variable names
+
+Changing the party names
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+df_ref_adj <- df_final %>%
+  mutate(party_bloc = fct_recode(party,
+                                  conservative = "Conservative",
+                                  labour = "Labour",
+                                  liberal = "Liberal Democrat",
+                                  other = "Scottish National Party",
+                                  other = "Plaid Cymru",
+                                  other  = "Green Party",
+                                  other = "UK Independence Party",
+                                  other = "Brexit Party",
+                                  other = "Other",
+                                  other = "Ulster Unionist Party (nir)",
+                                  other = "Democratic Unionist Party (nir)",
+                                  other = "Sinn Féin (nir)",
+                                  other = "Social Democratic and Labour Party (nir)",
+                                  other = "Alliance Party (nir)",
+                                  other = "Traditional Unionist (nir)",
+                                  other = "Green Party (nir)",
+                                  other = "Independent(s) (nir)",
+                                  other = "People Before Profit Alliance (nir)",
+                                  other = "Progressive Unionist Party",
+                                  other = "Aontú (nir)",
+                                  other = "Northern Ireland Conservatives (nir)",
+                                  other = "Other (nir)",
+                                  other = "Independent candidate"
+                                  ),
+         party_bloc = fct_relevel(party_bloc, "labour"))
+
+
+# We can check that our recoding seems ok.  
+df_ref_adj |> 
+  count(party_bloc, party)
+```
+
+# Task 03: Descriptive Statistics
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# adding a new variable to add category in the datamframe
+df_ref_adj <- df_ref_adj %>%
+  mutate(high_edu = ifelse(education %in% c("510", "520", "610", "620", "710", "720", "800"), 1, 0))
+
+df_ref_adj$high_education <- as.integer(df_ref_adj$high_edu)
+colnames(df_ref_adj)
+
+```
+
+Logic behind the selection: I chose people with intermediate level to doctoral degree as highly educated (1) and the rest as less educated (0).
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# Create a new factor variable with labels "educated" and "less educated"
+df_ref_adj$education_fac<- factor(df_ref_adj$high_education, levels = c(0, 1), labels = c("Less Educated (0)", "Highly Educated (1)"))
+
+# Generate the summary table with modified labels
+summary_table <- datasummary(education_fac * (age + (`Political Affiliation`= party_bloc) + gender) ~ 
+                                Mean + SD + Median + 1 + 
+                                Percent(denom = Equal(education_fac)),
+                              data = df_ref_adj,
+                              title = "ESS Election 2014: Descriptive statistics",
+                              notes = c("Comments: Election in Great Britain 2014."))
+
+summary_table
+```
+
+\
+In this dataset, the mean age for individuals with less education is 62.05 years, whereas for those with higher education, it is 54.62 years. Notably, individuals with lower education levels showed a stronger turn towards the Conservative party, with 54.15% of them casting their votes in favor of this party. Conversely, individuals with higher education levels exhibited a higher preference for the Labour party, with 38.35% voting in its favor compared to the Conservative party. Additionally, the Liberal party earned a larger share of votes (13.53%) from the highly educated group compared to the less educated group (7.80%).
+
+# Task 04 Model Formation
+
+# Task 05 Model Estimation
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# Convert high_education variable to factor
+df_ref_adj$high_education_f <- as.factor(df_ref_adj$high_education)
+
+models <- list(
+    "A" = multinom(party_bloc ~ gender + age + high_education_f, data = df_ref_adj, trace = FALSE),
+    "B" = multinom(party_bloc ~ gender + age + high_education_f + immigrants_better, data = df_ref_adj, trace = FALSE))
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+mdl_a <- multinom(party_bloc ~ gender + age + high_education_f, data = df_ref_adj)
+mdl_b <- multinom(party_bloc ~ gender + age + high_education_f + immigrants_better, data = df_ref_adj)
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+summary(mdl_a)
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+summary(mdl_b)
+```
+
+Table Containing estimates for both model, including confidence interval and odd ratios
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+modelsummary(models, shape =  term ~ model + response,
+             fmt = 2,
+             statistic = 'conf.int',
+             exponentiate = TRUE)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# Load the necessary package
+library(nnet)
+
+# Calculate AIC for each model
+AIC1 <- AIC(mdl_a)
+AIC2 <- AIC(mdl_b)
+
+# Calculate BIC for each model
+BIC1 <- BIC(mdl_a)
+BIC2 <- BIC(mdl_b)
+
+# Create a table to display the model fit statistics
+model_fit <- data.frame(
+  Model = c("Model 1", "Model 2"),
+  AIC = c(AIC1, AIC2),
+  BIC = c(BIC1, BIC2)
+  
+)
+
+# Print the table
+print(model_fit)
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# Create a simple dataframe with limited rows
+grid_data <- expand_grid(
+  gender = c("Male", "Female"),
+  age = seq(20, 80, 20),  # Adjust the length.out parameter to reduce the number of age points
+  high_education_f = factor(0:1),
+  immigrants_better = seq(1, 10, 3)  # Adjust the length.out parameter to reduce the number of immigrants_better points
+)
+
+# Randomly sample 30 rows from the dataframe
+#grid_data <- grid_data[sample(nrow(grid_data), 30), ]
+
+# View the dataframe
+print(grid_data)
+
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+library(ggeffects)
+library(effects)
+party_gb_prob <- effect(term = "immigrants_better", mod = mdl_b) |> 
+  as_tibble()
+
+head(party_gb_prob)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# We can get the same from ggeffect, but in a nicer, tidier form
+party_gb_prob_gg <- ggeffect(mdl_b, term = "immigrants_better")
+#party_gb_prob_gg
+#View(party_gb_prob_gg)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+library(effects)
+library(ggeffects)
+# This can then be piped into ggplot to get a graph
+# We can get the same from ggeffect, but in a nicer, tidier form
+party_gb_prob_gg <- ggeffect(mdl_b, term = "immigrants_better")
+#party_gb_prob_gg
+#View(party_gb_prob_gg)
+party_gb_prob_gg |> 
+  ggplot(aes(x, predicted, colour = response.level, fill = response.level)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), 
+              alpha=0.2, colour = NA) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  labs(title = "Party choice in United Kingdom",
+       subtitle = "Estimates from multinomial logistic regression",
+       x = "Perceptions about Immigrants (0-10)",
+       y = "Predicted probability",
+       caption = "Data from ESS 2016.",
+       colour = "Party",
+       fill = "Party")
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+
+library(effects)
+library(ggplot2)
+library(ggeffects)
+
+# Generate predicted probabilities
+party_gb_prob_gg <- ggeffect(mdl_b, terms = c("immigrants_better", "high_education_f"))
+
+#View(party_gb_prob_gg)
+party_gb_prob_gg |> 
+  ggplot(aes(x, predicted, colour = response.level, fill = response.level)) +
+  geom_line() +
+  #geom_ribbon(aes(ymin = conf.low, ymax = conf.high), 
+              #alpha=0.2, colour = NA) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  facet_wrap(~group) +
+  labs(title = "Party choice in United Kingdom",
+       subtitle = "Estimates from multinomial logistic regression",
+       x = "Perceptions about Immigrants (0-10)",
+       y = "Predicted Probability",
+       caption = "Data from ESS 2016.",
+       colour = "Party",
+       fill = "Party")
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+library(marginaleffects)
+
+plot_predictions(
+    mdl_b,
+    type = "probs",
+    condition = c("immigrants_better", "high_education_f"),
+    conf_level = 0.001
+) +
+facet_wrap(~group)
+```
+
+# Model Explanation
+
+Second Model (mdl_b)
+
+The coefficient for immigrants_better (-0.327 for Conservative) indicates the change in log-odds associated with perception about immigrants to the country.
+
+A negative coefficient indicates that thinking "immigrants are making the UK better place to live" reduces the likelihood of choosing the respective party bloc which is Conservative. It is shown in the figure too. The probability of choosing conservative party decrease sharply as the rating for immigrants goes higher.
+
+We have a positive coefficient (0.500 for Liberal) regarding the education variable implies that highly educated individuals are more likely to choose the Liberal Party compared to less educated individuals. The coefficients for conservative party is negative. So, highly educated people are less likely to vote for conservative party compare to less educated people.
+
+Immigrants_better variable has negative relationship with party liberal and conservative party blocs and very slightly positive relationship with other political parties.
+
+Standard errors measure the variability of the coefficients. Lower standard errors indicate more precise estimates. For the 'age' and 'immigrants_better' variables the model has lower standard errors but for the some other variables it has higher values.
+
+# Model Fit
+
+Both AIC and BIC value of model 2 (mdl_b, second model) are lower than the model 1, indicating second model is the better fit than first model.
+
+# Probability:
+
+From the figures, it's evident that as the value of 'immigrants_better' increases, the probability of individuals belonging to the Labour, Liberal, and Other parties also increases. However, the increase in probability is more pronounced for the Labour party compared to the other two parties, regardless of individuals' education levels. Conversely, for the Conservative party, the probability decreases dramatically as the value of 'immigrants_better' increases, irrespective of individuals' education levels.
+
+# Conclusion:
+
+I assumed that people with higher education tend to vote more for liberal parties than conservatives. That aligns with the result. Society's perception is a key factor, I expected it would impact the outcome more but got a moderate result. It has an impact on voting but not as much as I expected. I got negative coefficients for gender for all four parties. This means all else being equal, being female tends to decrease the log odds or the likelihood of belonging to the respective parties (Conservative, Liberal, and Other) compared to being male. In other words, females are less likely to belong to these parties compared to males. So, the impact is not clear to me.
